@@ -1,10 +1,26 @@
 from datetime import datetime
+import json
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from base64 import b64encode, b64decode
 
 class Transaction:
     def __init__(self, amount, transaction_type, timestamp):
         self.amount = amount
         self.transaction_type = transaction_type
         self.timestamp = timestamp
+
+    def to_dict(self):
+        return {
+            'amount': self.amount,
+            'transaction_type': self.transaction_type,
+            'timestamp': self.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        timestamp = datetime.strptime(data['timestamp'], "%Y-%m-%d %H:%M:%S")
+        return cls(data['amount'], data['transaction_type'], timestamp)
 
 
 class Account:
@@ -36,6 +52,21 @@ class Bank:
     def __init__(self, name):
         self.name = name
         self.accounts = {}
+        self.key = get_random_bytes(32)  # Generate encryption key
+
+    def encrypt_data(self, data):
+        serialized_data = json.dumps(data, default=lambda x: x.to_dict()).encode('utf-8')
+        cipher = AES.new(self.key, AES.MODE_CBC)
+        encrypted_data = cipher.encrypt(self.pad(serialized_data))
+        return b64encode(encrypted_data).decode('utf-8')
+
+    def decrypt_data(self, encrypted_data):
+        ciphertext = b64decode(encrypted_data)
+        cipher = AES.new(self.key, AES.MODE_CBC)
+        decrypted_data = cipher.decrypt(ciphertext)
+        unpadded_data = self.unpad(decrypted_data)
+        data = json.loads(unpadded_data.decode('utf-8'), object_hook=lambda x: Transaction.from_dict(x))
+        return data
 
     def create_account(self, account_number, owner, initial_balance=0):
         if account_number not in self.accounts:
@@ -62,6 +93,16 @@ class Bank:
                 print("Insufficient funds in the sender's account.")
         else:
             print("One or both accounts not found.")
+
+    def pad(self, data):
+        block_size = AES.block_size
+        padding_length = block_size - len(data) % block_size
+        padding = bytes([padding_length]) * padding_length
+        return data + padding
+
+    def unpad(self, data):
+        padding_length = data[-1]
+        return data[:-padding_length]
 
 def display_menu():
     print("Welcome to the Banking System")
